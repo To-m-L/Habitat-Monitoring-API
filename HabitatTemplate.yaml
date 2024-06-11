@@ -1,0 +1,161 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'YAML Template for deploying a REST API utilizing AWS Lambda, DynamoDB, and API Gateway for the Full Stack Engineering Challenge'
+
+Resources:
+  HabitatApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: 'HabitatAPI'
+
+  HabitatApiGatewayDeployment:
+    Type: AWS::ApiGateway::Deployment
+    Properties:
+      RestApiId: !Ref HabitatApi
+      StageName: 'prod'
+    DependsOn:
+      - HabitatApiGatewayGetMethod
+      - HabitatApiGatewayGetByIdMethod
+      - HabitatApiGatewayGetByDateMethod
+      - HabitatApiGatewayPostMethod
+
+  HabitatApiGatewayResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref HabitatApi
+      ParentId: !GetAtt HabitatApi.RootResourceId
+      PathPart: 'habitat'
+
+  HabitatApiGatewayGetMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref HabitatApi
+      ResourceId: !Ref HabitatApiGatewayResource
+      HttpMethod: 'GET'
+      AuthorizationType: 'NONE'
+      Integration:
+        Type: 'AWS_PROXY'
+        IntegrationHttpMethod: 'POST'
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${HabitatDataLambdaFunction.Arn}/invocations'
+
+  HabitatApiGatewayPostMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref HabitatApi
+      ResourceId: !Ref HabitatApiGatewayResource
+      HttpMethod: 'POST'
+      AuthorizationType: 'NONE'
+      Integration:
+        Type: 'AWS_PROXY'
+        IntegrationHttpMethod: 'POST'
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${HabitatDataLambdaFunction.Arn}/invocations'
+
+  HabitatApiGatewayIdResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref HabitatApi
+      ParentId: !Ref HabitatApiGatewayResource
+      PathPart: '{id}'
+
+  HabitatApiGatewayGetByIdMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref HabitatApi
+      ResourceId: !Ref HabitatApiGatewayIdResource
+      HttpMethod: 'GET'
+      AuthorizationType: 'NONE'
+      Integration:
+        Type: 'AWS_PROXY'
+        IntegrationHttpMethod: 'POST'
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${HabitatDataLambdaFunction.Arn}/invocations'
+
+  HabitatApiGatewayDateResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref HabitatApi
+      ParentId: !Ref HabitatApiGatewayResource
+      PathPart: 'date'
+
+  HabitatApiGatewayDateValueResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref HabitatApi
+      ParentId: !Ref HabitatApiGatewayDateResource
+      PathPart: '{date}'
+
+  HabitatApiGatewayGetByDateMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref HabitatApi
+      ResourceId: !Ref HabitatApiGatewayDateValueResource
+      HttpMethod: 'GET'
+      AuthorizationType: 'NONE'
+      Integration:
+        Type: 'AWS_PROXY'
+        IntegrationHttpMethod: 'POST'
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${HabitatDataLambdaFunction.Arn}/invocations'
+
+  HabitatDataLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: 'HabitatFunction'
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: habitatlambdabucket  
+        S3Key: HabitatLambdaFunction.zip
+      Runtime: python3.10
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref DynamoDBTable
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess
+
+  DynamoDBTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: 'HabitatData'
+      AttributeDefinitions:
+        - AttributeName: 'HabitatID'
+          AttributeType: 'S'
+        - AttributeName: 'Date'
+          AttributeType: 'S'
+      KeySchema:
+        - AttributeName: 'HabitatID'
+          KeyType: 'HASH'
+        - AttributeName: 'Date'
+          KeyType: 'RANGE'
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+      GlobalSecondaryIndexes:
+        - IndexName: DateIndex
+          KeySchema:
+            - AttributeName: 'Date'
+              KeyType: "HASH"
+          Projection:
+            ProjectionType: ALL
+          ProvisionedThroughput:
+            ReadCapacityUnits: 5
+            WriteCapacityUnits: 5
+
+Outputs:
+  ApiUrl:
+    Description: URL of the deployed API
+    Value: !Sub 'https://${HabitatApi}.execute-api.${AWS::Region}.amazonaws.com/prod/habitat'
+  LambdaFunctionArn:
+    Description: ARN of the Lambda function
+    Value: !GetAtt HabitatDataLambdaFunction.Arn
+  DynamoDBTableName:
+    Description: Name of the DynamoDB table
+    Value: !Ref DynamoDBTable
